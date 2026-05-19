@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Virtual Gallery — 4 Worlds</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; color: #fff; }
+  #canvas { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
+  #canvas:active { cursor: grabbing; }
+
+  /* ====== Top bar : world switcher ====== */
+  #worldBar {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px; padding: 6px;
+    background: rgba(0,0,0,0.45); backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 999px; z-index: 20;
+    opacity: 0; pointer-events: none; transition: opacity 0.8s ease;
+  }
+  #worldBar.show { opacity: 1; pointer-events: auto; }
+  .wbtn {
+    appearance: none; border: none; cursor: pointer;
+    padding: 9px 16px; border-radius: 999px;
+    font-size: 13px; font-weight: 500; letter-spacing: 0.04em;
+    background: transparent; color: rgba(255,255,255,0.65);
+    transition: background 0.25s, color 0.25s;
+  }
+  .wbtn:hover { color: #fff; }
+  .wbtn.active { background: rgba(255,255,255,0.92); color: #111; }
+
+  /* ====== Enter screen ====== */
+  #enter {
+    position: fixed; inset: 0; z-index: 30;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, #1a1612 0%, #000 70%);
+    transition: opacity 1.2s ease;
+  }
+  #enter.hide { opacity: 0; pointer-events: none; }
+  #enter h1 { font-size: 28px; font-weight: 300; letter-spacing: 0.3em; margin-bottom: 14px; }
+  #enter p { font-size: 13px; color: rgba(255,255,255,0.55); margin-bottom: 40px; letter-spacing: 0.15em; }
+  #enterBtn {
+    appearance: none; border: 1px solid rgba(255,255,255,0.5);
+    background: transparent; color: #fff;
+    padding: 16px 44px; font-size: 14px; letter-spacing: 0.3em;
+    cursor: pointer; border-radius: 2px;
+    transition: background 0.3s, letter-spacing 0.3s;
+  }
+  #enterBtn:hover { background: rgba(255,255,255,0.1); letter-spacing: 0.45em; }
+
+  /* ====== Detail panel ====== */
+  #detail {
+    position: fixed; right: -440px; top: 0; height: 100vh; width: 400px;
+    background: rgba(15,15,18,0.92); backdrop-filter: blur(16px);
+    border-left: 1px solid rgba(255,255,255,0.08);
+    padding: 80px 32px 32px; z-index: 25;
+    transition: right 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+    overflow-y: auto;
+  }
+  #detail.open { right: 0; }
+  #detail .close {
+    position: absolute; top: 24px; right: 24px;
+    width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(255,255,255,0.1); border: none; color: #fff;
+    cursor: pointer; font-size: 18px; line-height: 1;
+  }
+  #detail .swatch { width: 100%; height: 160px; border-radius: 4px; margin-bottom: 24px; }
+  #detail h2 { font-size: 22px; font-weight: 500; margin-bottom: 6px; }
+  #detail .artist { color: rgba(255,255,255,0.7); font-size: 13px; margin-bottom: 4px; }
+  #detail .school { color: rgba(255,255,255,0.45); font-size: 12px; margin-bottom: 20px; }
+  #detail .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-bottom: 28px; font-size: 12px; }
+  #detail .meta .k { color: rgba(255,255,255,0.45); }
+  #detail .meta .v { color: rgba(255,255,255,0.95); }
+  #detail .price { font-size: 28px; font-weight: 500; margin-bottom: 24px; }
+  #detail .buy {
+    width: 100%; padding: 14px; border: none; border-radius: 4px;
+    background: #fff; color: #111; font-size: 14px; font-weight: 600;
+    letter-spacing: 0.1em; cursor: pointer; margin-bottom: 10px;
+  }
+  #detail .contact {
+    width: 100%; padding: 14px; border: 1px solid rgba(255,255,255,0.3);
+    background: transparent; color: #fff; font-size: 13px;
+    letter-spacing: 0.08em; cursor: pointer; border-radius: 4px;
+  }
+
+  /* ====== Fade overlay (world transitions) ====== */
+  #fade {
+    position: fixed; inset: 0; background: #000; z-index: 15;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.45s ease;
+  }
+  #fade.show { opacity: 1; }
+
+  /* ====== Hint ====== */
+  #hint {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 0.2em;
+    z-index: 20; opacity: 0; transition: opacity 0.8s; pointer-events: none;
+  }
+  #hint.show { opacity: 1; }
+
+  @media (max-width: 600px) {
+    #detail { width: 100%; right: -100%; padding: 70px 22px 22px; }
+    .wbtn { padding: 8px 11px; font-size: 11px; letter-spacing: 0.02em; }
+    #enter h1 { font-size: 22px; }
+  }
+
+  /* ====== Detail action buttons (story / AR) ====== */
+  #detail .actions {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    margin-bottom: 14px;
+  }
+  #detail .act {
+    appearance: none; border: 1px solid rgba(255,255,255,0.22);
+    background: rgba(255,255,255,0.06); color: #fff;
+    padding: 12px 8px; border-radius: 4px;
+    font-size: 12px; letter-spacing: 0.05em; cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    line-height: 1.3;
+  }
+  #detail .act:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.4); }
+  #detail .act .ico { display: block; font-size: 18px; margin-bottom: 3px; opacity: 0.85; }
+
+  /* ====== Story video overlay ====== */
+  #story {
+    position: fixed; inset: 0; z-index: 40;
+    background: #000; display: none;
+    align-items: center; justify-content: center;
+  }
+  #story.show { display: flex; }
+  #story canvas {
+    width: min(94vw, 380px);
+    max-height: 86vh;
+    background: #0a0a0a;
+    border-radius: 8px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.8);
+  }
+  #story .label {
+    position: absolute; top: 4%; left: 50%; transform: translateX(-50%);
+    font-size: 11px; letter-spacing: 0.35em; color: rgba(255,255,255,0.55);
+  }
+  #story .sub {
+    position: absolute; bottom: 14%; left: 50%; transform: translateX(-50%);
+    width: min(86vw, 360px); text-align: center;
+    font-size: 15px; line-height: 1.7;
+    color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.95);
+    padding: 0 8px; pointer-events: none; font-weight: 500;
+  }
+  #story .progress {
+    position: absolute; bottom: 9%; left: 50%; transform: translateX(-50%);
+    width: min(86vw, 360px); height: 2px;
+    background: rgba(255,255,255,0.2); border-radius: 1px;
+  }
+  #story .progress .bar {
+    height: 100%; background: #fff; border-radius: 1px; width: 0%;
+  }
+  #story .ctrl {
+    position: absolute; top: 22px; right: 22px;
+    display: flex; gap: 8px; z-index: 5;
+  }
+  #story .ctrl button {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(255,255,255,0.15); border: none; color: #fff;
+    cursor: pointer; font-size: 18px; line-height: 1;
+    backdrop-filter: blur(10px);
+  }
+
+  /* ====== AR overlay ====== */
+  #ar {
+    position: fixed; inset: 0; z-index: 40;
+    background: #1a1612; display: none;
+    overflow: hidden;
+  }
+  #ar.show { display: block; }
+  #ar #arVideo {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover; display: none;
+  }
+  #ar #arFallback {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse at 30% 0%, rgba(255,230,200,0.4) 0%, transparent 50%),
+      linear-gradient(180deg, #d8c8b4 0%, #c0ac98 55%, #6a5a4a 100%);
+  }
+  #ar #arFallback::before {
+    content: ''; position: absolute; left: 15%; right: 15%; top: 18%; bottom: 38%;
+    background: #f4eee4;
+    box-shadow: inset 0 0 60px rgba(0,0,0,0.08), 0 30px 60px rgba(0,0,0,0.15);
+  }
+  #ar #arFallback::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 38%;
+    background: linear-gradient(180deg, #8a7868 0%, #5a4838 100%);
+    box-shadow: inset 0 8px 30px rgba(0,0,0,0.4);
+  }
+  #ar #arArt {
+    position: absolute; touch-action: none;
+    box-shadow: 0 14px 36px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.1);
+    cursor: move; user-select: none; z-index: 3;
+  }
+  #ar #arArt img { display: block; width: 100%; height: 100%; pointer-events: none; }
+  #ar #arArt .frame {
+    position: absolute; inset: -10px;
+    border: 10px solid #2a2018;
+    box-shadow: inset 0 0 0 2px rgba(0,0,0,0.4);
+    pointer-events: none;
+  }
+  #ar .handle {
+    position: absolute; right: -14px; bottom: -14px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #fff; cursor: nwse-resize; z-index: 4;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  #ar .topBar {
+    position: absolute; top: 0; left: 0; right: 0; padding: 16px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, transparent 100%);
+    display: flex; justify-content: space-between; align-items: center;
+    z-index: 5; gap: 10px;
+  }
+  #ar .topBar button {
+    appearance: none; border: none; cursor: pointer;
+    background: rgba(255,255,255,0.2); color: #fff;
+    padding: 9px 14px; border-radius: 20px;
+    font-size: 12px; backdrop-filter: blur(10px);
+  }
+  #ar #arDims {
+    color: #fff; font-size: 11px; letter-spacing: 0.05em;
+    background: rgba(0,0,0,0.45); padding: 7px 12px;
+    border-radius: 20px; backdrop-filter: blur(10px);
+  }
+  #ar .bottomBar {
+    position: absolute; bottom: 0; left: 0; right: 0; padding: 18px 14px 22px;
+    background: linear-gradient(0deg, rgba(0,0,0,0.7) 0%, transparent 100%);
+    display: flex; gap: 8px; justify-content: center; z-index: 5; flex-wrap: wrap;
+  }
+  #ar .bottomBar button {
+    appearance: none; border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.15); color: #fff;
+    padding: 11px 14px; border-radius: 4px;
+    font-size: 12px; cursor: pointer; backdrop-filter: blur(10px);
+    flex: 1; min-width: 90px; max-width: 140px;
+  }
+  #ar .bottomBar .primary {
+    background: #fff; color: #111; border-color: #fff; font-weight: 600;
+  }
+  #ar .tip {
+    position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: #fff;
+    background: rgba(0,0,0,0.5); padding: 7px 14px; border-radius: 20px;
+    letter-spacing: 0.1em; pointer-events: none; z-index: 5;
+    backdrop-filter: blur(10px);
+  }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="fade"></div>
+
+<div id="worldBar">
+  <button class="wbtn active" data-world="magical">魔法の書庫</button>
+  <button class="wbtn" data-world="cosmos">三体・宇宙</button>
+  <button class="wbtn" data-world="ghibli">木漏れ日の森</button>
+  <button class="wbtn" data-world="sterile">白の実験室</button>
+</div>
+
+<div id="hint">ドラッグで視点／作品をタップで詳細</div>
+
+<div id="enter">
+  <h1>VIRTUAL GALLERY</h1>
+  <p>ARTISTS YOU'LL WANT TO LIVE WITH</p>
+  <button id="enterBtn">OPEN THE DOOR</button>
+</div>
+
+<div id="detail">
+  <button class="close">×</button>
+  <div class="swatch" id="dSwatch"></div>
+  <h2 id="dTitle">—</h2>
+  <div class="artist" id="dArtist">—</div>
+  <div class="school" id="dSchool">—</div>
+  <div class="meta">
+    <div class="k">寸法</div><div class="v" id="dSize">—</div>
+    <div class="k">技法</div><div class="v" id="dMedium">—</div>
+    <div class="k">制作年</div><div class="v" id="dYear">—</div>
+    <div class="k">残部</div><div class="v" id="dStock">—</div>
+  </div>
+  <div class="price" id="dPrice">¥—</div>
+  <div class="actions">
+    <button class="act" id="btnStory"><span class="ico">▶</span>アーティストの30秒</button>
+    <button class="act" id="btnAR"><span class="ico">⌂</span>部屋に置いてみる</button>
+  </div>
+  <button class="buy">この作品を購入する</button>
+  <button class="contact">アーティストに連絡</button>
+</div>
+
+<!-- ====== Story video overlay ====== -->
+<div id="story">
+  <div class="label">ARTIST STORY · 30 SEC</div>
+  <canvas id="storyCanvas" width="720" height="1280"></canvas>
+  <div class="sub" id="storySub"></div>
+  <div class="progress"><div class="bar" id="storyBar"></div></div>
+  <div class="ctrl">
+    <button id="storyReplay" title="もう一度">↻</button>
+    <button id="storyClose" title="閉じる">×</button>
+  </div>
+</div>
+
+<!-- ====== AR preview overlay ====== -->
+<div id="ar">
+  <video id="arVideo" autoplay playsinline muted></video>
+  <div id="arFallback"></div>
+  <div class="tip" id="arTip">ドラッグで移動 · 右下のハンドルでサイズ調整</div>
+  <div id="arArt">
+    <img id="arArtImg" src="" alt="">
+    <div class="frame"></div>
+    <div class="handle" id="arHandle"></div>
+  </div>
+  <div class="topBar">
+    <button id="arClose">← 戻る</button>
+    <span id="arDims"></span>
+  </div>
+  <div class="bottomBar">
+    <button id="arShot">📷 スクショ</button>
+    <button id="arShare">💬 相談する</button>
+    <button class="primary" id="arBuy">この位置で購入</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* =====================================================================
+ * Virtual Gallery — 4 Worlds Prototype
+ * 共通: 部屋構造、6点の作品、扉入場、視点ドラッグ、作品タップで詳細
+ * 世界: magical / cosmos / ghibli / sterile を上部ボタンで切替
+ * ===================================================================== */
+
+// ---------- 基本セットアップ ----------
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+
+// 部屋の寸法
+const ROOM = { w: 16, h: 6, d: 26 };
+
+// ---------- 6作品のデータ（全世界で共通） ----------
+const artworks = [
+  { title: '青の余白', artist: '佐藤 美羽', school: '武蔵野美術大学・油画専攻', size: '60×80cm', medium: 'アクリル／キャンバス', year: '2025', stock: '1/1', price: 48000, palette: ['#1a3a6b','#6b9bd1','#e8e4d8','#0d1f3a'] },
+  { title: 'Forest Murmurs', artist: 'Lin Hao', school: 'Tama Art University・版画', size: '50×70cm', medium: '木版／和紙', year: '2025', stock: '3/12', price: 32000, palette: ['#3a5a3a','#8fa87a','#d8c98a','#1a2a1a'] },
+  { title: '夜光（やこう）', artist: '岡崎 蓮', school: '東京藝術大学・日本画', size: '45×60cm', medium: '岩絵具／麻紙', year: '2024', stock: '1/1', price: 92000, palette: ['#0d0d1f','#5a3a8a','#d8a85a','#1a1a3a'] },
+  { title: 'soft static', artist: 'mei.', school: '京都芸術大学・グラフィック', size: '42×42cm', medium: 'デジタル／ジクレー', year: '2025', stock: '8/30', price: 18000, palette: ['#e8c8b8','#b89878','#785a48','#f8e8d8'] },
+  { title: '余白の音', artist: '高橋 透', school: '東京造形大学・現代美術', size: '70×100cm', medium: 'インク／和紙', year: '2025', stock: '1/1', price: 65000, palette: ['#f0ede8','#3a3530','#a09080','#181614'] },
+  { title: 'Citrus', artist: '渡邊 さくら', school: '多摩美術大学・油画', size: '40×50cm', medium: '油彩／キャンバス', year: '2025', stock: '2/5', price: 38000, palette: ['#e8a838','#d85838','#f8d878','#682818'] }
+];
+
+// ---------- 作品の絵柄をプロシージャル生成 ----------
+function makeArtTexture(palette, seed) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 640;
+  const ctx = c.getContext('2d');
+  // ベース塗り
+  ctx.fillStyle = palette[2];
+  ctx.fillRect(0, 0, c.width, c.height);
+  // 大きなブロック
+  let s = seed;
+  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = palette[Math.floor(rnd() * palette.length)];
+    const x = rnd() * c.width, y = rnd() * c.height;
+    const w = 80 + rnd() * 300, h = 80 + rnd() * 300;
+    ctx.globalAlpha = 0.55 + rnd() * 0.35;
+    ctx.beginPath();
+    if (i % 2 === 0) ctx.ellipse(x, y, w/2, h/2, rnd()*Math.PI, 0, Math.PI*2);
+    else ctx.rect(x - w/2, y - h/2, w, h);
+    ctx.fill();
+  }
+  // 細かな線
+  ctx.globalAlpha = 0.7;
+  ctx.strokeStyle = palette[3];
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 40; i++) {
+    ctx.beginPath();
+    ctx.moveTo(rnd() * c.width, rnd() * c.height);
+    ctx.lineTo(rnd() * c.width, rnd() * c.height);
+    ctx.stroke();
+  }
+  // ノイズ
+  ctx.globalAlpha = 0.08;
+  for (let i = 0; i < 4000; i++) {
+    ctx.fillStyle = palette[Math.floor(rnd() * palette.length)];
+    ctx.fillRect(rnd() * c.width, rnd() * c.height, 1.5, 1.5);
+  }
+  ctx.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+// ---------- 作品配置 ----------
+// 左壁3点・右壁3点・正面（奥）には扉
+const wallZ = [-9, 0, 9];
+const artworkGroup = new THREE.Group();
+scene.add(artworkGroup);
+
+const paintingMeshes = []; // raycast対象
+
+function buildArtworks() {
+  artworks.forEach((art, i) => {
+    const tex = makeArtTexture(art.palette, i * 137 + 11);
+    const aspect = 0.78; // 縦長
+    const W = 2.2, H = W / aspect;
+    // 額（世界ごとに上書きされる "frame" マテリアル）
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6, metalness: 0.2 });
+    const frameGeom = new THREE.BoxGeometry(W + 0.25, H + 0.25, 0.12);
+    const frame = new THREE.Mesh(frameGeom, frameMat);
+    frame.castShadow = true; frame.receiveShadow = true;
+    frame.userData.kind = 'frame';
+
+    // 絵本体
+    const artMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, metalness: 0 });
+    const artMesh = new THREE.Mesh(new THREE.PlaneGeometry(W, H), artMat);
+    artMesh.position.z = 0.07;
+    artMesh.userData.kind = 'art';
+    artMesh.userData.index = i;
+    paintingMeshes.push(artMesh);
+
+    const g = new THREE.Group();
+    g.add(frame); g.add(artMesh);
+
+    // 配置
+    const side = i < 3 ? -1 : 1; // 左右
+    const slot = i % 3;
+    g.position.set(side * (ROOM.w/2 - 0.1), 0.3, wallZ[slot]);
+    g.rotation.y = side === -1 ? Math.PI / 2 : -Math.PI / 2;
+    g.userData.frame = frame;
+    g.userData.artIndex = i;
+    g.userData.basePos = g.position.clone();
+    g.userData.baseRot = g.rotation.clone();
+    artworkGroup.add(g);
+
+    // 個別スポットライト
+    const spot = new THREE.SpotLight(0xffffff, 0.0, 8, Math.PI / 6, 0.5, 1.5);
+    spot.position.set(side * (ROOM.w/2 - 2.2), ROOM.h - 0.5, wallZ[slot]);
+    spot.target.position.set(side * (ROOM.w/2 - 0.1), 1.4, wallZ[slot]);
+    scene.add(spot); scene.add(spot.target);
+    g.userData.spot = spot;
+  });
+}
+buildArtworks();
+
+// ---------- 部屋（世界ごとにマテリアルを差し替え） ----------
+const room = {};
+function buildRoom() {
+  // 床
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(ROOM.w, ROOM.d),
+    new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.7 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+  room.floor = floor;
+
+  // 天井
+  const ceiling = new THREE.Mesh(
+    new THREE.PlaneGeometry(ROOM.w, ROOM.d),
+    new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9, side: THREE.DoubleSide })
+  );
+  ceiling.rotation.x = Math.PI / 2;
+  ceiling.position.y = ROOM.h;
+  scene.add(ceiling);
+  room.ceiling = ceiling;
+
+  // 壁（左右奥前）
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x999999, roughness: 0.85 });
+  const walls = [];
+  const wL = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.d, ROOM.h), wallMat.clone());
+  wL.rotation.y = Math.PI / 2; wL.position.set(-ROOM.w/2, ROOM.h/2, 0); wL.receiveShadow = true; scene.add(wL); walls.push(wL);
+  const wR = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.d, ROOM.h), wallMat.clone());
+  wR.rotation.y = -Math.PI / 2; wR.position.set(ROOM.w/2, ROOM.h/2, 0); wR.receiveShadow = true; scene.add(wR); walls.push(wR);
+  const wB = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.h), wallMat.clone());
+  wB.position.set(0, ROOM.h/2, -ROOM.d/2); wB.receiveShadow = true; scene.add(wB); walls.push(wB);
+  // 手前壁（扉の置き場）
+  const wF = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.h), wallMat.clone());
+  wF.rotation.y = Math.PI; wF.position.set(0, ROOM.h/2, ROOM.d/2); wF.receiveShadow = true; scene.add(wF); walls.push(wF);
+  room.walls = walls;
+}
+buildRoom();
+
+// ---------- 扉 ----------
+const doorGroup = new THREE.Group();
+{
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0x4a2818, roughness: 0.55, metalness: 0.15 });
+  const door = new THREE.Mesh(new THREE.BoxGeometry(2.4, 4.4, 0.18), doorMat);
+  door.position.set(-1.2, -0.0, 0); // ヒンジを左端に
+  door.castShadow = true;
+  const hinge = new THREE.Group();
+  hinge.position.set(-1.2, 2.2, ROOM.d/2 - 0.05);
+  hinge.add(door);
+  // 取っ手
+  const knob = new THREE.Mesh(
+    new THREE.SphereGeometry(0.08, 16, 16),
+    new THREE.MeshStandardMaterial({ color: 0xc8a458, roughness: 0.25, metalness: 0.9 })
+  );
+  knob.position.set(1.0, 0, 0.12);
+  door.add(knob);
+  doorGroup.add(hinge);
+  doorGroup.userData.hinge = hinge;
+}
+scene.add(doorGroup);
+
+// ---------- 雰囲気要素を入れる箱（世界ごとにclear / build） ----------
+const worldGroup = new THREE.Group();
+scene.add(worldGroup);
+function clearWorld() {
+  while (worldGroup.children.length) {
+    const c = worldGroup.children[0];
+    worldGroup.remove(c);
+    c.traverse?.(o => { o.geometry?.dispose?.(); if (o.material) { (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose?.()); } });
+  }
+  worldUpdaters.length = 0;
+}
+const worldUpdaters = []; // 毎フレーム呼ぶ関数の配列
+
+// パーティクル汎用
+function makePoints(count, size, color, opacity, areaW, areaH, areaD) {
+  const geom = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    pos[i*3] = (Math.random() - 0.5) * areaW;
+    pos[i*3+1] = Math.random() * areaH;
+    pos[i*3+2] = (Math.random() - 0.5) * areaD;
+  }
+  geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({
+    color, size, transparent: true, opacity,
+    sizeAttenuation: true, depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  return new THREE.Points(geom, mat);
+}
+
+// =============================================================
+// 世界1：魔法の書庫（HARRY POTTER風）
+// =============================================================
+function buildMagical() {
+  scene.background = new THREE.Color(0x0a0806);
+  scene.fog = new THREE.Fog(0x1a0f08, 8, 38);
+
+  // 床：暗い木
+  room.floor.material.color.setHex(0x3a2818);
+  room.floor.material.roughness = 0.85;
+  room.ceiling.material.color.setHex(0x1a1208);
+  room.walls.forEach(w => { w.material.color.setHex(0x3a3530); w.material.roughness = 0.95; });
+
+  // 環境光（暗め・暖色）
+  const amb = new THREE.AmbientLight(0xffb070, 0.15);
+  worldGroup.add(amb);
+  const hemi = new THREE.HemisphereLight(0xffa050, 0x1a0a02, 0.18);
+  worldGroup.add(hemi);
+
+  // 額：装飾的ゴールド
+  artworkGroup.children.forEach(g => {
+    g.userData.frame.material.color.setHex(0xc89858);
+    g.userData.frame.material.metalness = 0.85;
+    g.userData.frame.material.roughness = 0.35;
+  });
+
+  // 浮遊キャンドル
+  const candles = [];
+  const candlePositions = [
+    [-5, 4.0, -7], [5, 4.5, -4], [-3, 3.2, 2], [4, 3.8, 5], [-5, 4.2, 8], [3, 3.5, -2]
+  ];
+  candlePositions.forEach((p, i) => {
+    const cg = new THREE.Group();
+    // ロウソク本体
+    const wax = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.09, 0.5, 12),
+      new THREE.MeshStandardMaterial({ color: 0xf0e0c8, roughness: 0.7 })
+    );
+    cg.add(wax);
+    // 炎
+    const flame = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffd070 })
+    );
+    flame.position.y = 0.32;
+    cg.add(flame);
+    // 光源
+    const light = new THREE.PointLight(0xffa840, 1.2, 7, 1.6);
+    light.position.y = 0.32;
+    cg.add(light);
+    cg.position.set(p[0], p[1], p[2]);
+    cg.userData.base = cg.position.clone();
+    cg.userData.phase = Math.random() * Math.PI * 2;
+    cg.userData.flame = flame;
+    cg.userData.light = light;
+    worldGroup.add(cg);
+    candles.push(cg);
+  });
+
+  // スポットライトをやや暖色に
+  artworkGroup.children.forEach(g => {
+    g.userData.spot.color.setHex(0xffd8a8);
+    g.userData.spot.intensity = 1.5;
+  });
+
+  // 黄金の埃
+  const dust = makePoints(380, 0.08, 0xffcc70, 0.55, ROOM.w * 0.95, ROOM.h, ROOM.d * 0.95);
+  worldGroup.add(dust);
+
+  // 木の梁（天井）
+  const beamMat = new THREE.MeshStandardMaterial({ color: 0x2a1a0a, roughness: 0.9 });
+  for (let i = 0; i < 4; i++) {
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(ROOM.w, 0.3, 0.45), beamMat);
+    beam.position.set(0, ROOM.h - 0.2, -ROOM.d/2 + 3 + i * (ROOM.d / 4.5));
+    worldGroup.add(beam);
+  }
+
+  // updater
+  worldUpdaters.push((t) => {
+    candles.forEach(c => {
+      const ph = c.userData.phase;
+      // 浮遊
+      c.position.y = c.userData.base.y + Math.sin(t * 0.7 + ph) * 0.18;
+      c.position.x = c.userData.base.x + Math.sin(t * 0.4 + ph * 2) * 0.07;
+      // ちらつき
+      const fl = 0.85 + Math.sin(t * 18 + ph) * 0.1 + (Math.random() - 0.5) * 0.18;
+      c.userData.light.intensity = 1.1 * fl;
+      c.userData.flame.scale.setScalar(0.85 + fl * 0.25);
+    });
+    // 埃ゆらぎ
+    const arr = dust.geometry.attributes.position.array;
+    for (let i = 1; i < arr.length; i += 3) {
+      arr[i] += 0.003 * Math.sin(t + i);
+      if (arr[i] > ROOM.h) arr[i] = 0;
+    }
+    dust.geometry.attributes.position.needsUpdate = true;
+  });
+}
+
+// =============================================================
+// 世界2：三体・宇宙
+// =============================================================
+function buildCosmos() {
+  scene.background = new THREE.Color(0x000005);
+  scene.fog = null;
+
+  // 床：暗く磨かれた金属
+  room.floor.material.color.setHex(0x080814);
+  room.floor.material.roughness = 0.3;
+  room.floor.material.metalness = 0.7;
+  // 天井は消す（透明に）
+  room.ceiling.material.color.setHex(0x000000);
+  room.ceiling.material.transparent = true;
+  room.ceiling.material.opacity = 0;
+  room.walls.forEach(w => { w.material.color.setHex(0x0a0a18); w.material.roughness = 0.4; w.material.metalness = 0.5; });
+
+  // 環境光（薄い青）
+  worldGroup.add(new THREE.AmbientLight(0x4070a0, 0.18));
+
+  // 星空ドーム
+  const starGeom = new THREE.BufferGeometry();
+  const N = 2200;
+  const sp = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const r = 90;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(Math.random() * 0.7 + 0.1); // 上半球寄り
+    sp[i*3] = r * Math.sin(phi) * Math.cos(theta);
+    sp[i*3+1] = r * Math.cos(phi);
+    sp[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  starGeom.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  const stars = new THREE.Points(starGeom, new THREE.PointsMaterial({ color: 0xffffff, size: 0.35, sizeAttenuation: true, transparent: true, opacity: 0.9 }));
+  worldGroup.add(stars);
+
+  // 3つの太陽（赤・白・青）
+  const suns = [
+    { color: 0xff4830, size: 1.2, dist: 28, speed: 0.07, phase: 0 },
+    { color: 0xffffff, size: 0.9, dist: 32, speed: 0.05, phase: Math.PI * 0.66 },
+    { color: 0x4080ff, size: 1.0, dist: 30, speed: 0.09, phase: Math.PI * 1.33 }
+  ];
+  const sunObjs = [];
+  suns.forEach(s => {
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(s.size, 24, 24),
+      new THREE.MeshBasicMaterial({ color: s.color })
+    );
+    // 周りのハロー
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(s.size * 2.4, 24, 24),
+      new THREE.MeshBasicMaterial({ color: s.color, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending })
+    );
+    const g = new THREE.Group();
+    g.add(m); g.add(halo);
+    g.userData = s;
+    worldGroup.add(g);
+    sunObjs.push(g);
+    // 光源
+    const light = new THREE.PointLight(s.color, 0.6, 60, 1.2);
+    g.add(light);
+  });
+
+  // 額：細い金属
+  artworkGroup.children.forEach(g => {
+    g.userData.frame.material.color.setHex(0xc0c4cc);
+    g.userData.frame.material.metalness = 0.95;
+    g.userData.frame.material.roughness = 0.2;
+  });
+
+  // 壁の足元の発光ライン
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x40b0ff });
+  [-1, 1].forEach(s => {
+    const line = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, ROOM.d - 1), lineMat);
+    line.position.set(s * (ROOM.w/2 - 0.1), 0.05, 0);
+    worldGroup.add(line);
+  });
+  const lineFB = new THREE.MeshBasicMaterial({ color: 0x40b0ff });
+  [-1, 1].forEach(s => {
+    const line = new THREE.Mesh(new THREE.BoxGeometry(ROOM.w - 1, 0.05, 0.05), lineFB);
+    line.position.set(0, 0.05, s * (ROOM.d/2 - 0.1));
+    worldGroup.add(line);
+  });
+
+  // スポットライトをクール
+  artworkGroup.children.forEach(g => {
+    g.userData.spot.color.setHex(0xc8e0ff);
+    g.userData.spot.intensity = 1.4;
+  });
+
+  worldUpdaters.push((t) => {
+    sunObjs.forEach(g => {
+      const s = g.userData;
+      g.position.set(
+        Math.cos(t * s.speed + s.phase) * s.dist,
+        12 + Math.sin(t * s.speed * 0.7 + s.phase) * 5,
+        Math.sin(t * s.speed + s.phase) * s.dist
+      );
+    });
+    stars.rotation.y = t * 0.005;
+  });
+}
+
+// =============================================================
+// 世界3：ジブリ・木漏れ日の森
+// =============================================================
+function buildGhibli() {
+  scene.background = new THREE.Color(0xe8d8b0);
+  scene.fog = new THREE.Fog(0xe8d8b0, 18, 50);
+
+  // 床：明るい木
+  room.floor.material.color.setHex(0xb89870);
+  room.floor.material.roughness = 0.7;
+  room.floor.material.metalness = 0;
+  room.ceiling.material.color.setHex(0xead8b0);
+  room.ceiling.material.transparent = false;
+  room.ceiling.material.opacity = 1;
+  room.walls.forEach(w => { w.material.color.setHex(0xf0e0c0); w.material.roughness = 0.9; w.material.metalness = 0; });
+
+  // 環境光：暖かい
+  worldGroup.add(new THREE.AmbientLight(0xffe8b0, 0.55));
+  const hemi = new THREE.HemisphereLight(0xfff0c0, 0x4a5a30, 0.5);
+  worldGroup.add(hemi);
+
+  // 斜めの強い日光
+  const sun = new THREE.DirectionalLight(0xffd890, 1.8);
+  sun.position.set(-6, 10, -4);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -15; sun.shadow.camera.right = 15;
+  sun.shadow.camera.top = 15; sun.shadow.camera.bottom = -15;
+  worldGroup.add(sun);
+
+  // 額：明るい無垢材
+  artworkGroup.children.forEach(g => {
+    g.userData.frame.material.color.setHex(0xd4b078);
+    g.userData.frame.material.metalness = 0.0;
+    g.userData.frame.material.roughness = 0.7;
+  });
+
+  // 木漏れ日シャフト（光の柱）
+  const shaftMat = new THREE.MeshBasicMaterial({
+    color: 0xfff0b8, transparent: true, opacity: 0.10,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+  });
+  const shaftPositions = [[-3, 0, -6], [2.5, 0, -2], [-2, 0, 3], [3.5, 0, 7], [-4, 0, 9]];
+  shaftPositions.forEach(p => {
+    // 細い円錐を斜めに
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.9, 9, 12, 1, true), shaftMat);
+    cone.position.set(p[0], 4.5, p[2]);
+    cone.rotation.z = 0.35;
+    cone.rotation.x = 0.1;
+    worldGroup.add(cone);
+    // もう一層
+    const cone2 = cone.clone();
+    cone2.scale.set(0.55, 1, 0.55);
+    worldGroup.add(cone2);
+  });
+
+  // 花粉（上向きにふわり）
+  const pollen = makePoints(220, 0.10, 0xfff0a0, 0.85, ROOM.w * 0.95, ROOM.h, ROOM.d * 0.95);
+  worldGroup.add(pollen);
+  const pVel = new Float32Array(220);
+  for (let i = 0; i < 220; i++) pVel[i] = 0.003 + Math.random() * 0.006;
+
+  // 苔色のラグ
+  const rug = new THREE.Mesh(
+    new THREE.PlaneGeometry(4, 6),
+    new THREE.MeshStandardMaterial({ color: 0x5a6e3a, roughness: 0.95 })
+  );
+  rug.rotation.x = -Math.PI / 2;
+  rug.position.set(0, 0.01, 2);
+  worldGroup.add(rug);
+
+  // スポットを暖色マイルド
+  artworkGroup.children.forEach(g => {
+    g.userData.spot.color.setHex(0xffe8c0);
+    g.userData.spot.intensity = 0.9;
+  });
+
+  worldUpdaters.push((t) => {
+    const arr = pollen.geometry.attributes.position.array;
+    for (let i = 0; i < pVel.length; i++) {
+      arr[i*3+1] += pVel[i];
+      arr[i*3] += Math.sin(t * 0.7 + i) * 0.004;
+      if (arr[i*3+1] > ROOM.h) arr[i*3+1] = 0;
+    }
+    pollen.geometry.attributes.position.needsUpdate = true;
+  });
+}
+
+// =============================================================
+// 世界4：白の実験室（無機質）
+// =============================================================
+function buildSterile() {
+  scene.background = new THREE.Color(0xf2f4f7);
+  scene.fog = new THREE.Fog(0xf2f4f7, 25, 70);
+
+  room.floor.material.color.setHex(0xfafbfc);
+  room.floor.material.roughness = 0.15;
+  room.floor.material.metalness = 0.1;
+  room.ceiling.material.color.setHex(0xffffff);
+  room.ceiling.material.transparent = false;
+  room.ceiling.material.opacity = 1;
+  room.walls.forEach(w => { w.material.color.setHex(0xf5f6f8); w.material.roughness = 0.4; w.material.metalness = 0.0; });
+
+  // 均一な強い白色光
+  worldGroup.add(new THREE.AmbientLight(0xe8eef8, 0.9));
+  const top = new THREE.DirectionalLight(0xffffff, 0.6);
+  top.position.set(0, 12, 0);
+  worldGroup.add(top);
+  const fill = new THREE.HemisphereLight(0xffffff, 0xe0e8f0, 0.4);
+  worldGroup.add(fill);
+
+  // 額：細いスチール
+  artworkGroup.children.forEach(g => {
+    g.userData.frame.material.color.setHex(0x303236);
+    g.userData.frame.material.metalness = 0.9;
+    g.userData.frame.material.roughness = 0.4;
+    g.userData.frame.scale.set(0.97, 0.97, 0.4); // 細く
+  });
+
+  // 浮遊するワイヤーフレーム多面体
+  const wfMat = new THREE.LineBasicMaterial({ color: 0x88a8c8, transparent: true, opacity: 0.55 });
+  const shapes = [];
+  for (let i = 0; i < 8; i++) {
+    let geom;
+    const t = i % 3;
+    if (t === 0) geom = new THREE.OctahedronGeometry(0.55 + Math.random() * 0.4);
+    else if (t === 1) geom = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+    else geom = new THREE.IcosahedronGeometry(0.55, 0);
+    const edges = new THREE.EdgesGeometry(geom);
+    const line = new THREE.LineSegments(edges, wfMat.clone());
+    line.position.set(
+      (Math.random() - 0.5) * (ROOM.w - 2),
+      1.5 + Math.random() * (ROOM.h - 2.5),
+      (Math.random() - 0.5) * (ROOM.d - 4)
+    );
+    line.userData.base = line.position.clone();
+    line.userData.rotSpeed = new THREE.Vector3(
+      (Math.random() - 0.5) * 0.5,
+      (Math.random() - 0.5) * 0.6,
+      (Math.random() - 0.5) * 0.4
+    );
+    line.userData.phase = Math.random() * Math.PI * 2;
+    worldGroup.add(line);
+    shapes.push(line);
+    geom.dispose();
+  }
+
+  // スポット白
+  artworkGroup.children.forEach(g => {
+    g.userData.spot.color.setHex(0xffffff);
+    g.userData.spot.intensity = 0.5;
+  });
+
+  worldUpdaters.push((t, dt) => {
+    shapes.forEach(s => {
+      s.rotation.x += s.userData.rotSpeed.x * dt;
+      s.rotation.y += s.userData.rotSpeed.y * dt;
+      s.rotation.z += s.userData.rotSpeed.z * dt;
+      s.position.y = s.userData.base.y + Math.sin(t * 0.3 + s.userData.phase) * 0.35;
+    });
+  });
+}
+
+// 世界4から戻る時に額のスケールを戻す
+function restoreFrames() {
+  artworkGroup.children.forEach(g => {
+    g.userData.frame.scale.set(1, 1, 1);
+  });
+}
+
+// ---------- 世界切替 ----------
+const fadeEl = document.getElementById('fade');
+let currentWorld = null;
+function setWorld(name, instant = false) {
+  if (name === currentWorld) return;
+  const apply = () => {
+    clearWorld();
+    restoreFrames();
+    if (name === 'magical') buildMagical();
+    else if (name === 'cosmos') buildCosmos();
+    else if (name === 'ghibli') buildGhibli();
+    else if (name === 'sterile') buildSterile();
+    currentWorld = name;
+    document.querySelectorAll('.wbtn').forEach(b => b.classList.toggle('active', b.dataset.world === name));
+  };
+  if (instant) { apply(); return; }
+  fadeEl.classList.add('show');
+  setTimeout(() => { apply(); setTimeout(() => fadeEl.classList.remove('show'), 60); }, 420);
+}
+
+document.querySelectorAll('.wbtn').forEach(b => {
+  b.addEventListener('click', () => setWorld(b.dataset.world));
+});
+
+// 初期世界（扉演出中に裏で構築しておく）
+setWorld('magical', true);
+
+// ---------- カメラ初期位置（扉の外） ----------
+camera.position.set(0, 1.65, ROOM.d/2 + 6);
+camera.lookAt(0, 1.65, 0);
+
+// ---------- 視点ドラッグ（pointer lock不要のシンプル yaw/pitch） ----------
+const cam = {
+  yaw: Math.PI,       // 入場後は奥（-Z）を見る
+  pitch: 0,
+  target: new THREE.Vector3(0, 1.65, 0), // 注視点
+  pos: new THREE.Vector3(0, 1.65, ROOM.d/2 + 6),
+  zoomT: 0,           // 0: 通常 / 1: 作品近接
+  zoomFrom: null, zoomTo: null,
+  selectedArt: null,
+  inputEnabled: false
+};
+
+let dragging = false, lastX = 0, lastY = 0;
+canvas.addEventListener('pointerdown', e => {
+  if (!cam.inputEnabled) return;
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  cam.yaw -= dx * 0.005;
+  cam.pitch -= dy * 0.004;
+  cam.pitch = Math.max(-0.7, Math.min(0.7, cam.pitch));
+});
+canvas.addEventListener('pointerup', e => { dragging = false; });
+canvas.addEventListener('pointercancel', () => { dragging = false; });
+
+// ---------- 作品タップ ----------
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let downX = 0, downY = 0;
+canvas.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY; });
+canvas.addEventListener('click', e => {
+  if (!cam.inputEnabled) return;
+  // ドラッグと区別
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+  ndc.x = (e.clientX / window.innerWidth) * 2 - 1;
+  ndc.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(paintingMeshes, false);
+  if (hits.length > 0) {
+    const m = hits[0].object;
+    selectArtwork(m.userData.index);
+  }
+});
+
+function selectArtwork(idx) {
+  const g = artworkGroup.children[idx];
+  cam.selectedArt = idx;
+  cam.zoomFrom = camera.position.clone();
+  // 作品の正面に立つ位置
+  const fwd = new THREE.Vector3(0, 0, 1).applyEuler(g.rotation);
+  const targetPos = g.position.clone().add(fwd.multiplyScalar(2.2));
+  targetPos.y = 1.55;
+  cam.zoomTo = { pos: targetPos, look: g.position.clone().setY(1.55) };
+  cam.zoomT = 0.0001;
+  showDetail(idx);
+}
+
+// ---------- 詳細パネル ----------
+const detail = document.getElementById('detail');
+function showDetail(idx) {
+  const a = artworks[idx];
+  document.getElementById('dTitle').textContent = a.title;
+  document.getElementById('dArtist').textContent = a.artist;
+  document.getElementById('dSchool').textContent = a.school;
+  document.getElementById('dSize').textContent = a.size;
+  document.getElementById('dMedium').textContent = a.medium;
+  document.getElementById('dYear').textContent = a.year;
+  document.getElementById('dStock').textContent = a.stock;
+  document.getElementById('dPrice').textContent = '¥' + a.price.toLocaleString();
+  document.getElementById('dSwatch').style.background = `linear-gradient(135deg, ${a.palette[0]} 0%, ${a.palette[1]} 50%, ${a.palette[2]} 100%)`;
+  detail.classList.add('open');
+}
+detail.querySelector('.close').addEventListener('click', () => {
+  detail.classList.remove('open');
+  // ズームを戻す
+  if (cam.selectedArt !== null) {
+    cam.zoomFrom = camera.position.clone();
+    cam.zoomTo = null;
+    cam.zoomT = 0.0001;
+    cam.selectedArt = null;
+  }
+});
+detail.querySelector('.buy').addEventListener('click', () => alert('決済画面へ遷移（実装予定：Stripe連携）'));
+detail.querySelector('.contact').addEventListener('click', () => alert('アーティストへの連絡フォームを開きます（実装予定）'));
+
+// ---------- 入場演出 ----------
+const enterEl = document.getElementById('enter');
+const enterBtn = document.getElementById('enterBtn');
+let entering = false, enterT = 0;
+enterBtn.addEventListener('click', () => {
+  if (entering) return;
+  entering = true;
+  enterEl.classList.add('hide');
+  enterT = 0.0001;
+});
+
+// ---------- リサイズ ----------
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------- メインループ ----------
+const clock = new THREE.Clock();
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeInOut(t) { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2; }
+
+function tick() {
+  const dt = clock.getDelta();
+  const t = clock.elapsedTime;
+
+  // 入場アニメ
+  if (entering) {
+    enterT = Math.min(1, enterT + dt / 3.2); // 約3.2秒
+    const e = easeInOut(enterT);
+    // 1) 扉を開ける（0〜0.45）
+    const doorPhase = Math.min(1, enterT / 0.45);
+    doorGroup.userData.hinge.rotation.y = -easeInOut(doorPhase) * Math.PI * 0.45;
+    // 2) カメラが侵入（0.2〜1.0）
+    const camPhase = Math.max(0, (enterT - 0.2) / 0.8);
+    const ce = easeInOut(camPhase);
+    const fromZ = ROOM.d/2 + 6;
+    const toZ = ROOM.d/2 - 6;
+    camera.position.set(0, 1.65, lerp(fromZ, toZ, ce));
+    camera.lookAt(0, 1.65, -2);
+    if (enterT >= 1) {
+      entering = false;
+      cam.pos.copy(camera.position);
+      cam.inputEnabled = true;
+      document.getElementById('worldBar').classList.add('show');
+      document.getElementById('hint').classList.add('show');
+      setTimeout(() => document.getElementById('hint').classList.remove('show'), 4000);
+    }
+  } else {
+    // 通常／ズーム
+    if (cam.zoomT > 0) {
+      cam.zoomT = Math.min(1, cam.zoomT + dt / 0.9);
+      const e = easeInOut(cam.zoomT);
+      if (cam.zoomTo) {
+        // 作品にズーム
+        camera.position.lerpVectors(cam.zoomFrom, cam.zoomTo.pos, e);
+        const lookHere = cam.zoomTo.look;
+        camera.lookAt(lookHere.x, lookHere.y, lookHere.z);
+      } else {
+        // ホームへ戻る
+        const home = new THREE.Vector3(0, 1.65, ROOM.d/2 - 6);
+        camera.position.lerpVectors(cam.zoomFrom, home, e);
+        camera.lookAt(0, 1.65, -2);
+        if (cam.zoomT >= 1) {
+          cam.pos.copy(camera.position);
+          // ドラッグ角もリセット
+          cam.yaw = Math.PI; cam.pitch = 0;
+        }
+      }
+      if (cam.zoomT >= 1) cam.zoomT = 0;
+    } else if (cam.inputEnabled && cam.selectedArt === null) {
+      // ドラッグで視点（位置は固定）
+      const dir = new THREE.Vector3(
+        Math.sin(cam.yaw) * Math.cos(cam.pitch),
+        Math.sin(cam.pitch),
+        Math.cos(cam.yaw) * Math.cos(cam.pitch)
+      );
+      const look = camera.position.clone().add(dir);
+      camera.lookAt(look);
+    }
+  }
+
+  // 世界の毎フレーム更新
+  worldUpdaters.forEach(fn => fn(t, dt));
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+tick();
+
+/* =====================================================================
+ * ストーリー動画（30秒・プロシージャル生成）
+ * 本番ではここに撮影済みの mp4 を差し替える想定
+ * ===================================================================== */
+const stories = [
+  { lines: [
+    { t: 0.5,  text: '夜中、自分の中に静かに広がる青を' },
+    { t: 6.0,  text: '描きたかった。' },
+    { t: 12.0, text: '余白こそが、いちばん大切な色だと思う。' },
+    { t: 21.0, text: 'あなたの部屋の、静かな時間に。' }
+  ]},
+  { lines: [
+    { t: 0.5,  text: '森の中で耳を澄ますと、' },
+    { t: 5.0,  text: '小さなざわめきが聞こえる。' },
+    { t: 11.0, text: '和紙の繊維に、その音を写したかった。' },
+    { t: 21.0, text: '暮らしの中に、森のかけらを。' }
+  ]},
+  { lines: [
+    { t: 0.5,  text: '祖母の家で見た、' },
+    { t: 4.0,  text: '夜更けの月の光が原点です。' },
+    { t: 11.0, text: '岩絵具を何層も重ねて、闇の中の光を。' },
+    { t: 21.0, text: '眠りに入る前の、最後の一枚として。' }
+  ]},
+  { lines: [
+    { t: 0.5,  text: 'デジタルとアナログの中間にある、' },
+    { t: 5.0,  text: '優しいノイズを描いています。' },
+    { t: 12.0, text: '完璧じゃない、けど心地いい風景を。' },
+    { t: 21.0, text: '毎朝目覚めて、最初に見る一枚に。' }
+  ]},
+  { lines: [
+    { t: 0.5,  text: '墨の濃淡の中にある、' },
+    { t: 5.0,  text: '音のない音を聴いてください。' },
+    { t: 12.0, text: '和紙が墨を吸う、その時間が好きでした。' },
+    { t: 21.0, text: '深呼吸する場所に、置いてほしい。' }
+  ]},
+  { lines: [
+    { t: 0.5,  text: '瀬戸内の柑橘畑で見た、' },
+    { t: 5.0,  text: 'まばゆい黄色を覚えています。' },
+    { t: 12.0, text: '夏の終わりの匂いを、絵の具に。' },
+    { t: 21.0, text: 'キッチンや、朝のテーブルの脇に。' }
+  ]}
+];
+
+const storyEl = document.getElementById('story');
+const storyCanvas = document.getElementById('storyCanvas');
+const sctx = storyCanvas.getContext('2d');
+const storySubEl = document.getElementById('storySub');
+const storyBarEl = document.getElementById('storyBar');
+let storyState = { idx: null, t0: 0, running: false, raf: 0 };
+const STORY_LEN = 30; // 秒
+
+function playStory(idx) {
+  storyState.idx = idx;
+  storyState.t0 = performance.now();
+  storyState.running = true;
+  storyEl.classList.add('show');
+  cancelAnimationFrame(storyState.raf);
+  drawStoryFrame();
+}
+
+function drawStoryFrame() {
+  if (!storyState.running) return;
+  const now = performance.now();
+  const t = (now - storyState.t0) / 1000;
+  const a = artworks[storyState.idx];
+  const W = storyCanvas.width, H = storyCanvas.height;
+  const progress = Math.min(1, t / STORY_LEN);
+
+  // ベース塗り
+  sctx.fillStyle = a.palette[2];
+  sctx.fillRect(0, 0, W, H);
+
+  // ストロークを時間で増やしていく（絵が立ち上がる演出）
+  let s = storyState.idx * 1379 + 7;
+  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  const totalShapes = 24;
+  const visibleShapes = Math.floor(progress * totalShapes);
+  for (let i = 0; i < visibleShapes; i++) {
+    sctx.fillStyle = a.palette[Math.floor(rnd() * a.palette.length)];
+    const x = rnd() * W, y = rnd() * H;
+    const w = 120 + rnd() * 500, h = 120 + rnd() * 500;
+    // 出現時の透明度をフェードイン
+    const localT = Math.min(1, (progress * totalShapes - i) / 0.5);
+    sctx.globalAlpha = (0.5 + rnd() * 0.35) * localT;
+    sctx.beginPath();
+    if (i % 2 === 0) sctx.ellipse(x, y, w/2, h/2, rnd()*Math.PI, 0, Math.PI*2);
+    else sctx.rect(x - w/2, y - h/2, w, h);
+    sctx.fill();
+  }
+  const totalLines = 120;
+  const visibleLines = Math.floor(progress * totalLines);
+  sctx.globalAlpha = 0.6;
+  sctx.strokeStyle = a.palette[3];
+  sctx.lineWidth = 1.6;
+  for (let i = 0; i < visibleLines; i++) {
+    sctx.beginPath();
+    sctx.moveTo(rnd() * W, rnd() * H);
+    sctx.lineTo(rnd() * W, rnd() * H);
+    sctx.stroke();
+  }
+  sctx.globalAlpha = 1;
+
+  // 最初2秒は黒からフェードイン
+  if (t < 2) {
+    sctx.fillStyle = `rgba(0,0,0,${1 - t/2})`;
+    sctx.fillRect(0, 0, W, H);
+  }
+
+  // 最初3秒：アーティスト名のオーバーレイ
+  if (t < 3.5) {
+    const alpha = t < 0.5 ? t * 2 : (t > 3 ? (3.5 - t) * 2 : 1);
+    sctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    sctx.textAlign = 'center';
+    sctx.font = '600 38px -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif';
+    sctx.fillText(a.artist, W/2, H * 0.44);
+    sctx.font = '300 20px -apple-system, "Hiragino Sans", sans-serif';
+    sctx.fillStyle = `rgba(255,255,255,${alpha * 0.65})`;
+    sctx.fillText(a.school, W/2, H * 0.50);
+  }
+
+  // 最後6秒：タイトル＋価格をうっすら
+  if (t > STORY_LEN - 6) {
+    const phase = (t - (STORY_LEN - 6)) / 6;
+    const alpha = Math.min(1, phase * 2);
+    // 軽い暗幕
+    sctx.fillStyle = `rgba(0,0,0,${alpha * 0.35})`;
+    sctx.fillRect(0, 0, W, H);
+    sctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    sctx.textAlign = 'center';
+    sctx.font = '500 44px -apple-system, "Hiragino Sans", sans-serif';
+    sctx.fillText(`「${a.title}」`, W/2, H * 0.46);
+    sctx.font = '300 22px -apple-system, "Hiragino Sans", sans-serif';
+    sctx.fillStyle = `rgba(255,255,255,${alpha * 0.85})`;
+    sctx.fillText(`¥${a.price.toLocaleString()}  ·  ${a.size}`, W/2, H * 0.53);
+  }
+
+  // 字幕
+  const lines = stories[storyState.idx].lines;
+  let currentLine = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (t >= lines[i].t && t < lines[i].t + 7) { currentLine = lines[i]; break; }
+  }
+  storySubEl.textContent = currentLine ? currentLine.text : '';
+
+  // プログレスバー
+  storyBarEl.style.width = (progress * 100) + '%';
+
+  if (t < STORY_LEN) {
+    storyState.raf = requestAnimationFrame(drawStoryFrame);
+  } else {
+    storyState.running = false;
+  }
+}
+
+document.getElementById('storyClose').addEventListener('click', () => {
+  storyState.running = false;
+  cancelAnimationFrame(storyState.raf);
+  storyEl.classList.remove('show');
+});
+document.getElementById('storyReplay').addEventListener('click', () => {
+  if (storyState.idx !== null) playStory(storyState.idx);
+});
+document.getElementById('btnStory').addEventListener('click', () => {
+  if (cam.selectedArt !== null) playStory(cam.selectedArt);
+});
+
+/* =====================================================================
+ * AR モード（簡易版：カメラ + ドラッグ可能オーバーレイ）
+ * 本番では WebXR / model-viewer による壁検出に置き換え
+ * ===================================================================== */
+const arEl = document.getElementById('ar');
+const arVideoEl = document.getElementById('arVideo');
+const arArt = document.getElementById('arArt');
+const arArtImg = document.getElementById('arArtImg');
+const arHandle = document.getElementById('arHandle');
+const arDimsEl = document.getElementById('arDims');
+const arTipEl = document.getElementById('arTip');
+
+async function openAR(idx) {
+  const a = artworks[idx];
+  // 既存の作品テクスチャを再利用
+  const tex = paintingMeshes[idx].material.map;
+  arArtImg.src = tex.image.toDataURL();
+
+  // 初期サイズ・位置（実寸感を伝えるため、画面幅の40%を初期サイズに）
+  const initW = Math.min(window.innerWidth * 0.42, 260);
+  const initH = initW / 0.78;
+  arArt.style.width = initW + 'px';
+  arArt.style.height = initH + 'px';
+  arArt.style.left = (window.innerWidth - initW) / 2 + 'px';
+  arArt.style.top = (window.innerHeight - initH) / 2 + 'px';
+  arDimsEl.textContent = `${a.size}  ·  ¥${a.price.toLocaleString()}`;
+  arEl.classList.add('show');
+
+  // カメラ要求
+  arVideoEl.style.display = 'none';
+  arTipEl.textContent = 'カメラを起動しています…';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }, audio: false
+    });
+    arVideoEl.srcObject = stream;
+    arVideoEl.style.display = 'block';
+    arTipEl.textContent = '壁にカメラを向けて、絵をドラッグで配置';
+  } catch (e) {
+    arTipEl.textContent = 'カメラ未許可 · サンプル背景でデモ表示中';
+  }
+}
+
+function closeAR() {
+  arEl.classList.remove('show');
+  if (arVideoEl.srcObject) {
+    arVideoEl.srcObject.getTracks().forEach(tr => tr.stop());
+    arVideoEl.srcObject = null;
+  }
+}
+
+let arDrag = null;
+arArt.addEventListener('pointerdown', (e) => {
+  if (e.target === arHandle) return;
+  arDrag = {
+    kind: 'move',
+    sx: e.clientX, sy: e.clientY,
+    ox: parseFloat(arArt.style.left), oy: parseFloat(arArt.style.top),
+    id: e.pointerId
+  };
+  arArt.setPointerCapture(e.pointerId);
+});
+arHandle.addEventListener('pointerdown', (e) => {
+  e.stopPropagation();
+  arDrag = {
+    kind: 'resize',
+    sx: e.clientX, sy: e.clientY,
+    ow: parseFloat(arArt.style.width),
+    id: e.pointerId
+  };
+  arHandle.setPointerCapture(e.pointerId);
+});
+document.addEventListener('pointermove', (e) => {
+  if (!arDrag) return;
+  if (arDrag.kind === 'move') {
+    arArt.style.left = (arDrag.ox + (e.clientX - arDrag.sx)) + 'px';
+    arArt.style.top  = (arDrag.oy + (e.clientY - arDrag.sy)) + 'px';
+  } else {
+    const newW = Math.max(80, Math.min(window.innerWidth * 0.95, arDrag.ow + (e.clientX - arDrag.sx)));
+    arArt.style.width  = newW + 'px';
+    arArt.style.height = (newW / 0.78) + 'px';
+  }
+});
+document.addEventListener('pointerup', () => { arDrag = null; });
+
+document.getElementById('arClose').addEventListener('click', closeAR);
+document.getElementById('btnAR').addEventListener('click', () => {
+  if (cam.selectedArt !== null) openAR(cam.selectedArt);
+});
+
+// スクショ（カメラ映像＋作品を合成して保存）
+document.getElementById('arShot').addEventListener('click', () => {
+  const sc = document.createElement('canvas');
+  sc.width = window.innerWidth; sc.height = window.innerHeight;
+  const sx = sc.getContext('2d');
+  // 背景
+  if (arVideoEl.srcObject && arVideoEl.readyState >= 2) {
+    const vw = arVideoEl.videoWidth, vh = arVideoEl.videoHeight;
+    // object-fit: cover 相当
+    const scale = Math.max(sc.width / vw, sc.height / vh);
+    const dw = vw * scale, dh = vh * scale;
+    sx.drawImage(arVideoEl, (sc.width - dw)/2, (sc.height - dh)/2, dw, dh);
+  } else {
+    // フォールバック背景
+    const g = sx.createLinearGradient(0, 0, 0, sc.height);
+    g.addColorStop(0, '#d8c8b4'); g.addColorStop(0.55, '#c0ac98'); g.addColorStop(1, '#6a5a4a');
+    sx.fillStyle = g; sx.fillRect(0, 0, sc.width, sc.height);
+    sx.fillStyle = '#f4eee4';
+    sx.fillRect(sc.width*0.15, sc.height*0.18, sc.width*0.7, sc.height*0.44);
+  }
+  // 作品
+  const rect = arArt.getBoundingClientRect();
+  // 額縁の影
+  sx.fillStyle = 'rgba(0,0,0,0.3)';
+  sx.fillRect(rect.left + 6, rect.top + 14, rect.width, rect.height);
+  // 額
+  sx.fillStyle = '#2a2018';
+  sx.fillRect(rect.left - 10, rect.top - 10, rect.width + 20, rect.height + 20);
+  // 絵本体
+  sx.drawImage(arArtImg, rect.left, rect.top, rect.width, rect.height);
+  // ダウンロード
+  const link = document.createElement('a');
+  link.download = `gallery_preview_${Date.now()}.png`;
+  link.href = sc.toDataURL('image/png');
+  link.click();
+});
+
+// LINE等で相談する（Web Share API）
+document.getElementById('arShare').addEventListener('click', async () => {
+  const a = artworks[cam.selectedArt];
+  const text = `この絵、どう思う？\n「${a.title}」 / ${a.artist}\n${a.size} · ¥${a.price.toLocaleString()}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: '部屋に置いてみました', text }); } catch (e) {}
+  } else {
+    // フォールバック：クリップボード
+    try {
+      await navigator.clipboard.writeText(text);
+      arTipEl.textContent = '本文をコピーしました ・ LINE等に貼り付けてください';
+      setTimeout(() => { arTipEl.textContent = '壁にカメラを向けて、絵をドラッグで配置'; }, 2800);
+    } catch (e) {
+      alert('共有：' + text);
+    }
+  }
+});
+
+document.getElementById('arBuy').addEventListener('click', () => {
+  alert('購入フローへ（実装予定：Stripe連携）');
+});
+
+</script>
+</body>
+</html>
