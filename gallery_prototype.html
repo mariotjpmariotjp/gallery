@@ -264,6 +264,7 @@
   <button class="wbtn" data-world="cosmos">三体・宇宙</button>
   <button class="wbtn" data-world="ghibli">木漏れ日の森</button>
   <button class="wbtn" data-world="sterile">白の実験室</button>
+  <button class="wbtn" data-world="palace">宮殿の回廊</button>
 </div>
 
 <div id="hint">ドラッグで視点／作品をタップで詳細</div>
@@ -912,6 +913,168 @@ function buildSterile() {
   });
 }
 
+// =============================================================
+// 世界5：宮殿の回廊（ベルサイユ「鏡の間」モチーフ）
+// =============================================================
+// 寄木細工（パーケット）テクスチャ
+function makeParquetTexture() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+  const x = c.getContext('2d');
+  x.fillStyle = '#6b4a28'; x.fillRect(0, 0, 512, 512);
+  const cols = ['#7a5430', '#6b4a28', '#5c3f22', '#83592f'];
+  const tile = 64;
+  for (let r = 0; r < 8; r++) {
+    for (let cI = 0; cI < 8; cI++) {
+      x.save(); x.translate(cI * tile, r * tile);
+      const horiz = (r + cI) % 2 === 0;
+      x.fillStyle = cols[(r * 7 + cI * 3) % cols.length];
+      x.fillRect(1, 1, tile - 2, tile - 2);
+      x.strokeStyle = 'rgba(40,25,10,0.25)'; x.lineWidth = 1;
+      for (let k = 4; k < tile; k += 6) {
+        x.beginPath();
+        if (horiz) { x.moveTo(0, k); x.lineTo(tile, k); } else { x.moveTo(k, 0); x.lineTo(k, tile); }
+        x.stroke();
+      }
+      x.restore();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(3, 5);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+// バロック風フレスコ天井テクスチャ（特定作品を複製せず新規生成）
+function makeFrescoTexture() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+  const x = c.getContext('2d');
+  x.fillStyle = '#caa44a'; x.fillRect(0, 0, 512, 512);          // 金の縁取り
+  x.fillStyle = '#f3e8cf'; x.fillRect(18, 18, 476, 476);        // クリームの額内
+  const g = x.createRadialGradient(256, 256, 40, 256, 256, 260);
+  g.addColorStop(0, '#bcd2e6'); g.addColorStop(0.5, '#f0e2c4'); g.addColorStop(1, '#e6d2a8');
+  x.fillStyle = g; x.fillRect(30, 30, 452, 452);                // 中央に淡い空
+  let s = 12345; const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  for (let i = 0; i < 14; i++) {                                // 雲のかたまり
+    x.fillStyle = `rgba(255,250,235,${0.25 + rnd() * 0.35})`;
+    x.beginPath();
+    x.ellipse(60 + rnd() * 392, 60 + rnd() * 392, 25 + rnd() * 70, 18 + rnd() * 45, rnd() * Math.PI, 0, Math.PI * 2);
+    x.fill();
+  }
+  x.fillStyle = 'rgba(190,150,60,0.5)';
+  for (let i = 0; i < 40; i++) { x.fillRect(30 + rnd() * 452, 30 + rnd() * 452, 3, 3); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+function buildPalace() {
+  scene.background = new THREE.Color(0x2a1f12);
+  scene.fog = new THREE.Fog(0x3a2c18, 26, 54);
+
+  // 床：暗めの下地（上に寄木オーバーレイを敷く）
+  room.floor.material.color.setHex(0x4a3520);
+  room.floor.material.roughness = 0.4; room.floor.material.metalness = 0.1;
+  // 壁：アイボリー
+  room.walls.forEach(w => { w.material.color.setHex(0xefe6d2); w.material.roughness = 0.6; w.material.metalness = 0.05; });
+  // 天井：クリーム（フレスコ下地）— cosmosで透明化されるので明示的に戻す
+  room.ceiling.material.color.setHex(0xf0e4cc);
+  room.ceiling.material.transparent = false;
+  room.ceiling.material.opacity = 1;
+
+  // 環境光：暖色・明るめ
+  worldGroup.add(new THREE.AmbientLight(0xffe6b8, 0.42));
+  worldGroup.add(new THREE.HemisphereLight(0xfff0d0, 0x6a4a28, 0.45));
+
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xc9a23a, metalness: 0.85, roughness: 0.35 });
+
+  // 寄木オーバーレイ床
+  const floorOverlay = new THREE.Mesh(
+    new THREE.PlaneGeometry(ROOM.w, ROOM.d),
+    new THREE.MeshStandardMaterial({ map: makeParquetTexture(), roughness: 0.35, metalness: 0.12 })
+  );
+  floorOverlay.rotation.x = -Math.PI / 2; floorOverlay.position.y = 0.02;
+  worldGroup.add(floorOverlay);
+
+  // フレスコ天井オーバーレイ
+  const ceilOverlay = new THREE.Mesh(
+    new THREE.PlaneGeometry(ROOM.w - 0.6, ROOM.d - 0.6),
+    new THREE.MeshBasicMaterial({ map: makeFrescoTexture(), side: THREE.DoubleSide })
+  );
+  ceilOverlay.rotation.x = Math.PI / 2; ceilOverlay.position.y = ROOM.h - 0.05;
+  worldGroup.add(ceilOverlay);
+
+  // 額：明るいゴールド（装飾的）
+  artworkGroup.children.forEach(g => {
+    g.userData.frame.material.color.setHex(0xd4af37);
+    g.userData.frame.material.metalness = 0.9;
+    g.userData.frame.material.roughness = 0.3;
+  });
+
+  // 金箔の柱（pilasters）＋柱頭
+  const pilZ = [-13, -4.5, 4.5, 13];
+  [-1, 1].forEach(side => {
+    pilZ.forEach(z => {
+      const pil = new THREE.Mesh(new THREE.BoxGeometry(0.45, ROOM.h - 0.4, 0.3), goldMat);
+      pil.position.set(side * (ROOM.w / 2 - 0.18), (ROOM.h - 0.4) / 2, z);
+      worldGroup.add(pil);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.25, 0.45), goldMat);
+      cap.position.set(side * (ROOM.w / 2 - 0.18), ROOM.h - 0.5, z);
+      worldGroup.add(cap);
+    });
+  });
+
+  // 金のコーニス（天井際の縁取り）
+  [-1, 1].forEach(side => {
+    const cz = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.22, ROOM.d), goldMat);
+    cz.position.set(side * (ROOM.w / 2 - 0.1), ROOM.h - 0.3, 0);
+    worldGroup.add(cz);
+    const cx = new THREE.Mesh(new THREE.BoxGeometry(ROOM.w, 0.22, 0.18), goldMat);
+    cx.position.set(0, ROOM.h - 0.3, side * (ROOM.d / 2 - 0.1));
+    worldGroup.add(cx);
+  });
+
+  // シャンデリア × 3（中央列）
+  const chandeliers = [];
+  [-8, 0, 8].forEach(z => {
+    const ch = new THREE.Group();
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 8), goldMat);
+    ch.add(rod);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.05, 8, 24), goldMat);
+    ring.rotation.x = Math.PI / 2; ring.position.y = -0.5; ch.add(ring);
+    const flames = [];
+    const N = 8;
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const flame = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffdf8a }));
+      flame.position.set(Math.cos(a) * 0.7, -0.42, Math.sin(a) * 0.7);
+      ch.add(flame); flames.push(flame);
+      const cry = new THREE.Mesh(new THREE.OctahedronGeometry(0.05),
+        new THREE.MeshBasicMaterial({ color: 0xfff4d0, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending }));
+      cry.position.set(Math.cos(a + 0.2) * 0.55, -0.7, Math.sin(a + 0.2) * 0.55);
+      ch.add(cry);
+    }
+    const light = new THREE.PointLight(0xffd27a, 1.3, 18, 1.4);
+    light.position.y = -0.45; ch.add(light);
+    ch.position.set(0, ROOM.h - 0.6, z);
+    ch.userData = { flames, light, phase: Math.random() * Math.PI * 2 };
+    worldGroup.add(ch); chandeliers.push(ch);
+  });
+
+  // スポット：暖色ゴールド
+  artworkGroup.children.forEach(g => {
+    g.userData.spot.color.setHex(0xffe2a8);
+    g.userData.spot.intensity = 1.1;
+  });
+
+  // updater：シャンデリアの炎をゆらめかせる
+  worldUpdaters.push((t) => {
+    chandeliers.forEach(ch => {
+      const fl = 0.85 + Math.sin(t * 8 + ch.userData.phase) * 0.08 + (Math.random() - 0.5) * 0.12;
+      ch.userData.light.intensity = 1.3 * fl;
+      ch.userData.flames.forEach((f, i) => { f.scale.setScalar(0.85 + Math.sin(t * 10 + i) * 0.15); });
+    });
+  });
+}
+
 // 世界4から戻る時に額のスケールを戻す
 function restoreFrames() {
   artworkGroup.children.forEach(g => {
@@ -931,6 +1094,7 @@ function setWorld(name, instant = false) {
     else if (name === 'cosmos') buildCosmos();
     else if (name === 'ghibli') buildGhibli();
     else if (name === 'sterile') buildSterile();
+    else if (name === 'palace') buildPalace();
     currentWorld = name;
     document.querySelectorAll('.wbtn').forEach(b => b.classList.toggle('active', b.dataset.world === name));
   };
